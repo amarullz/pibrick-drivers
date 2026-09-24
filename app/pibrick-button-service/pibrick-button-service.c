@@ -995,10 +995,11 @@ int main(void)
 
     /*
      * Keep the existing piBrick GPIO ownership behavior.
+     * Sometime hyn_ts need to be restarted when boot
      */
     system("rmmod gpio_keys");
-    // system("rmmod hyn_ts");
-    // system("modprobe hyn_ts");
+    system("rmmod hyn_ts");
+    system("modprobe hyn_ts");
     uk_init();
 
 
