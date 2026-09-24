@@ -14,6 +14,7 @@ DTBO    := $(DTSDIR)/pibrick.dtbo
 obj-m += panel/panel-pibrick.o
 obj-m += power/pibrick-battery.o
 obj-m += power/pibrick-charger.o
+obj-m += accel/pibrick-mma8451.o
 
 .PHONY: all modules dtbo clean install uninstall
 

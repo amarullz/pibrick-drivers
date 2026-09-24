@@ -149,6 +149,10 @@ prepare_dkms_source()
         "${ROOT_DIR}/power" \
         "${DKMS_SOURCE_DIR}/power"
 
+    cp -a \
+        "${ROOT_DIR}/accel" \
+        "${DKMS_SOURCE_DIR}/accel"
+
     mkdir -p "${DKMS_SOURCE_DIR}/touch"
 
     cp -a \
@@ -256,6 +260,7 @@ show_status()
         panel-pibrick \
         pibrick-battery \
         pibrick-charger \
+        pibrick-mma8451 \
         hyn_ts
     do
         if modinfo "${module}" >/dev/null 2>&1; then
@@ -277,8 +282,14 @@ show_status()
     echo
     echo "Userspace:"
     echo "  pibrick-button-service:"
-    if [[ -x /usr/local/bin/pibrick-button-service ]]; then
-        echo "    installed"
+    if systemctl list-unit-files --type=service 2>/dev/null |
+        grep -q '^pibrick-button-service\.service'; then
+
+        if systemctl is-active --quiet pibrick-button-service.service; then
+            echo "    installed, running"
+        else
+            echo "    installed, not running"
+        fi
     else
         echo "    not installed"
     fi

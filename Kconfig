@@ -37,6 +37,25 @@ config PIBRICK_CHARGER
 	help
 	  Enable the piBrick BQ25890 charger driver.
 
+config PIBRICK_MMA8451
+	tristate "piBrick MMA8451 accelerometer"
+	depends on I2C
+	depends on IIO
+	help
+	  Say Y or M here to enable support for the NXP MMA8451QR1
+	  3-axis accelerometer used by the piBrick PocketCM5.
+
+	  The driver exposes the accelerometer through the Linux IIO
+	  subsystem and supports the MMA8451's 14-bit X, Y and Z
+	  acceleration data.
+
+	  This driver is intended for the piBrick PocketCM5 and uses
+	  the Device Tree compatible string:
+
+	    pibrick,mma8451
+
+	  If unsure, say M.
+
 source "touch/hyn_ts/Kconfig"
 
 endif # PIBRICK_DRIVERS

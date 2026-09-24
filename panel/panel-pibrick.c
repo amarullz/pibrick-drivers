@@ -449,6 +449,34 @@ static ssize_t pibrick_display_enable_store(struct device *dev,
 static DEVICE_ATTR_RW(pibrick_display_enable);
 
 
+static const char *pibrick_panel_type_name(
+	enum pibrick_panel_type type)
+{
+	switch (type) {
+	case PIBRICK_PANEL_548:
+		return "5.48";
+
+	case PIBRICK_PANEL_392:
+	default:
+		return "3.92";
+	}
+}
+static ssize_t pibrick_panel_type_show(
+	struct device *dev,
+	struct device_attribute *attr,
+	char *buf)
+{
+	struct pibrick_panel *ctx = dev_get_drvdata(dev);
+
+	return sysfs_emit(
+		buf,
+		"%s\n",
+		pibrick_panel_type_name(ctx->panel_type));
+}
+
+static DEVICE_ATTR_RO(pibrick_panel_type);
+
+
 static bool pibrick_i2c_device_present(struct i2c_adapter *adapter,
 				       u16 addr)
 {
@@ -1101,6 +1129,10 @@ static int pibrick_probe(struct mipi_dsi_device *dsi)
 
 	dev_info(dev, "Detected piBrick %s display\n",
 		 ctx->panel_type == PIBRICK_PANEL_548 ? "5.48-inch" : "3.92-inch");
+	
+	ret = device_create_file(dev, &dev_attr_pibrick_panel_type);
+	if (ret)
+		dev_warn(dev, "Failed to create pibrick_panel_type sysfs attribute\n");
 
 	return 0;
 }
