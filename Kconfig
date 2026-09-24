@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+menu "piBrick CM5 Drivers"
+
+config PIBRICK_DRIVERS
+	bool "piBrick CM5 drivers"
+	default y
+	help
+	  Enable the piBrick CM5 hardware drivers.
+
+	  This driver collection provides support for the piBrick
+	  display panel, battery, charger and touchscreen hardware.
+
+if PIBRICK_DRIVERS
+
+config PIBRICK_PANEL
+	tristate "piBrick AMOLED panel driver"
+	default m
+	help
+	  Enable the piBrick AMOLED panel driver.
+
+	  Supports the piBrick 3.92-inch and 5.48-inch AMOLED
+	  display panels.
+
+config PIBRICK_BATTERY
+	tristate "piBrick battery driver"
+	default m
+	help
+	  Enable the piBrick battery and fuel-gauge driver.
+
+	  The driver uses the MAX17048 fuel gauge when available
+	  and provides the piBrick battery power_supply interface.
+
+config PIBRICK_CHARGER
+	tristate "piBrick charger driver"
+	default m
+	help
+	  Enable the piBrick BQ25890 charger driver.
+
+source "touch/hyn_ts/Kconfig"
+
+endif # PIBRICK_DRIVERS
+
+endmenu

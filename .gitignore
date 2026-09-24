@@ -1,0 +1,72 @@
+# Kernel build artifacts
+
+*.o
+*.ko
+*.ko.xz
+*.mod
+*.mod.c
+*.mod.o
+*.order
+*.symvers
+Module.symvers
+modules.order
+.modules.order.cmd
+.Module.symvers.cmd
+
+# Kbuild generated files
+
+.*.cmd
+.tmp_versions/
+*.dwo
+
+# Device-tree build artifacts
+
+*.dtbo
+
+# Userspace application binaries
+app/pibrick-button-service/pibrick-button-service
+app/pibrick-kbd/pibrick-kbd
+
+# Editor / IDE
+
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.#*
+
+# C/C++ tooling
+
+compile_commands.json
+
+# Build output
+
+build/
+dist/
+
+# Logs
+
+*.log
+
+# OS metadata
+
+.DS_Store
+Thumbs.db
+
+# Temporary files
+
+tmp/
+temp/
+*.tmp
+
+# Local environment / configuration
+
+.env
+.env.*
+
+# Python cache
+
+**pycache**/
+*.py[cod]
+.pytest_cache/

@@ -1,0 +1,23 @@
+[Unit]
+Description=piBrick Button Service
+Documentation=https://github.com/amarullz/pibrick-drivers
+After=multi-user.target
+Wants=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/pibrick-button-service
+Restart=on-failure
+RestartSec=2
+
+# Run with the privileges required for GPIO/input hardware access.
+
+User=root
+Group=root
+
+# Ensure the service has a predictable environment.
+
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+[Install]
+WantedBy=multi-user.target

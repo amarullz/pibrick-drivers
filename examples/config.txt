@@ -1,0 +1,231 @@
+# ============================================================================
+# piBrick PocketCM5 - Raspberry Pi configuration example
+# ============================================================================
+#
+# This file contains the Raspberry Pi configuration required for the piBrick
+# PocketCM5 hardware and its drivers.
+#
+# Copy the required settings into:
+#
+#     /boot/firmware/config.txt
+#
+# On older Raspberry Pi OS installations the configuration file may instead
+# be located at:
+#
+#     /boot/config.txt
+#
+# After changing this configuration, reboot the Raspberry Pi.
+#
+# ============================================================================
+
+
+# ----------------------------------------------------------------------------
+# piBrick Device Tree Overlay
+# ----------------------------------------------------------------------------
+#
+# Enable the unified piBrick hardware overlay.
+#
+# This overlay provides:
+#
+#   - DSI1 piBrick AMOLED panel
+#   - I2C0 touchscreen devices
+#   - I2C1 BQ25890 charger
+#   - I2C1 piBrick battery provider
+#   - piBrick GPIO configuration
+#
+# The panel driver automatically detects the installed display:
+#
+#   I2C0 address 0x38 responds
+#       -> 5.48-inch AMOLED
+#
+#   I2C0 address 0x38 does not respond
+#       -> 3.92-inch AMOLED
+#
+dtoverlay=pibrick
+
+
+# ----------------------------------------------------------------------------
+# piBrick Battery Configuration
+# ----------------------------------------------------------------------------
+#
+# The following values are the default values defined by the piBrick overlay.
+#
+# battery_capacity
+#   Battery capacity in mAh.
+#
+#   Default:
+#       5000 mAh
+#
+# charge_current_ma
+#   Battery charging current in mA.
+#
+#   Default:
+#       4000 mA
+#
+# Example:
+#
+# dtoverlay=pibrick,battery_capacity=5000,charge_current_ma=4000
+#
+# If your battery or desired charging current differs, replace the values
+# with the appropriate configuration.
+#
+# Example for a 4000 mAh battery and 3000 mA charging current:
+#
+# dtoverlay=pibrick,battery_capacity=4000,charge_current_ma=3000
+
+
+# ----------------------------------------------------------------------------
+# I2C
+# ----------------------------------------------------------------------------
+#
+# piBrick uses the Raspberry Pi I2C buses as follows:
+#
+#   I2C0
+#       Touchscreen
+#
+#   I2C1
+#       BQ25890 charger
+#       piBrick battery provider / MAX17048
+#
+# The pibrick Device Tree overlay enables the required buses, so normally
+# no additional I2C configuration is required here.
+#
+# Do NOT add a second dtoverlay=i2c1 line unless your system requires
+# additional I2C configuration.
+#
+
+
+# ----------------------------------------------------------------------------
+# SPI
+# ----------------------------------------------------------------------------
+#
+# SPI is not required by the piBrick kernel drivers.
+#
+# Enable this only if another device connected to your PocketCM5 requires
+# the Raspberry Pi SPI interface.
+#
+# dtparam=spi=on
+
+
+# ----------------------------------------------------------------------------
+# UART
+# ----------------------------------------------------------------------------
+#
+# UART is not required by the piBrick panel, power, touchscreen, or keyboard
+# applications.
+#
+# Enable this only if another device requires the Raspberry Pi UART.
+#
+# enable_uart=1
+
+
+# ----------------------------------------------------------------------------
+# HDMI
+# ----------------------------------------------------------------------------
+#
+# piBrick provides HDMI output hardware.
+#
+# No additional HDMI configuration is required by the piBrick overlay.
+#
+
+
+# ----------------------------------------------------------------------------
+# piBrick Keyboard
+# ----------------------------------------------------------------------------
+#
+# The piBrick keyboard uses an RP2040 running QMK/Vial firmware.
+#
+# Communication between Raspberry Pi OS and the keyboard is performed through
+# USB HIDRAW by the userspace application:
+#
+#     app/pibrick-kbd/
+#
+# The keyboard application can communicate with the RP2040 for functions such
+# as:
+#
+#   - keyboard backlight
+#   - keyboard brightness
+#   - keyboard timeout
+#   - keyboard layer control
+#   - trackpad orientation
+#   - other piBrick keyboard HID commands
+#
+# No Device Tree configuration is required for the USB HIDRAW keyboard.
+#
+
+
+# ----------------------------------------------------------------------------
+# piBrick Button Service
+# ----------------------------------------------------------------------------
+#
+# GPIO buttons are handled by the userspace service:
+#
+#     pibrick-button-service
+#
+# The systemd service is installed separately from the Device Tree overlay.
+#
+# No additional config.txt entry is required for the button service unless
+# a future version of the service introduces configurable GPIO parameters.
+#
+
+
+# ----------------------------------------------------------------------------
+# Display Rotation
+# ----------------------------------------------------------------------------
+#
+# The common piBrick panel rotation is defined by the Device Tree overlay:
+#
+#     rotation = <0>;
+#
+# The panel driver handles the panel-specific physical orientation.
+#
+# For the 5.48-inch AMOLED panel, the driver automatically adds 180 degrees
+# to the configured panel rotation.
+#
+# Therefore the default configuration should normally be left unchanged.
+#
+# Touchscreen orientation is configured independently because the touchscreen
+# is a separate I2C input device.
+#
+
+
+# ----------------------------------------------------------------------------
+# Optional: GPU / Display Memory
+# ----------------------------------------------------------------------------
+#
+# piBrick does not require a special gpu_mem setting.
+#
+# Raspberry Pi OS defaults should normally be used.
+#
+# Example:
+#
+# gpu_mem=128
+
+
+# ----------------------------------------------------------------------------
+# Optional: Disable Bluetooth
+# ----------------------------------------------------------------------------
+#
+# If Bluetooth is not required on a particular PocketCM5 configuration,
+# Raspberry Pi OS can disable it with:
+#
+# dtoverlay=disable-bt
+#
+# This is OPTIONAL and is not required by piBrick.
+#
+
+
+# ============================================================================
+# Example Complete Configuration
+# ============================================================================
+#
+# For a standard piBrick PocketCM5 with a 5000 mAh battery and 4000 mA
+# charging current, the relevant configuration is simply:
+#
+#     dtoverlay=pibrick,battery_capacity=5000,charge_current_ma=4000
+#
+# The equivalent configuration using the default values is:
+#
+#     dtoverlay=pibrick
+#
+# ============================================================================

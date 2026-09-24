@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+config HYN_TS
+	tristate "Hynitron touchscreen driver"
+	default m
+	help
+	  Hynitron touchscreen driver used by piBrick.

@@ -1,0 +1,178 @@
+/dts-v1/;
+/plugin/;
+
+/ {
+	compatible = "brcm,bcm2712",
+		     "raspberrypi,5-compute-module",
+		     "raspberrypi,5-model-b";
+
+	/*
+	 * piBrick PocketCM5 common overlay
+	 *
+	 * Display variants:
+	 *   - 3.92-inch AMOLED: 1080x1240, 90/60 Hz
+	 *   - 5.48-inch AMOLED: 1080x1920, 60 Hz
+	 *
+	 * The panel driver detects the installed panel through I2C0:
+	 *   0x38 responds -> 5.48-inch panel
+	 *   0x38 absent   -> 3.92-inch panel
+	 *
+	 * Display rotation:
+	 *   rotation = <0> is the common physical DTS setting.
+	 *   The panel driver adds 180 degrees for the 5.48-inch panel.
+	 *
+	 * Touch rotation is configured independently because the touchscreen
+	 * is a separate I2C input device:
+	 *   - Hynitron 3.92-inch: coordinate configuration from the original DTS
+	 *   - FT5x06 5.48-inch: inverted X + inverted Y = 180 degrees
+	 */
+
+	fragment@0 {
+		target = <&dsi1>;
+		__overlay__ {
+			status = "okay";
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			port {
+				dsi_out_port: endpoint {
+					remote-endpoint = <&panel_dsi_port>;
+				};
+			};
+
+			pibrick: pibrick@0 {
+				compatible = "pibrick,amoled";
+				status = "okay";
+				reg = <0>;
+
+				reset-gpios = <&gpio 20 1>;
+				te-gpios = <&gpio 47 1>;
+				touch-reset-gpios = <&gpio 17 1>;
+
+				/* Base rotation. 5.48-inch driver adds 180 degrees. */
+				rotation = <0>;
+
+				port {
+					panel_dsi_port: endpoint {
+						remote-endpoint = <&dsi_out_port>;
+					};
+				};
+			};
+		};
+	};
+
+	fragment@1 {
+		target = <&gpio>;
+		__overlay__ {
+			pibrick_pins: pibrick_pins {
+				brcm,pins = <47>;
+				brcm,function = <1>;
+				brcm,pull = <1>;
+			};
+		};
+	};
+
+	fragment@2 {
+		target = <&i2c0>;
+		__overlay__ {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "okay";
+
+			/* 3.92-inch AMOLED touchscreen */
+			hynitron: touchscreen@5a {
+				compatible = "hyn,66xx";
+				reg = <0x5a>;
+
+				interrupt-parent = <&gpio>;
+				interrupts = <4 2>;
+				reset-gpio = <&gpio 17 1>;
+				irq-gpio = <&gpio 4 2>;
+
+				panel = <&pibrick>;
+
+				max-touch-number = <5>;
+				display-coords = <0 0 1080 1240>;
+				pos-swap = <1>;
+				posx-reverse = <0>;
+				posy-reverse = <0>;
+			};
+
+			/* 5.48-inch AMOLED touchscreen */
+			ft5x06: touchscreen@38 {
+				compatible = "edt,edt-ft5406";
+				reg = <0x38>;
+
+				pinctrl-names = "default";
+				reset-gpios = <&gpio 17 1>;
+
+				panel = <&pibrick>;
+
+				touchscreen-size-x = <1080>;
+				touchscreen-size-y = <1920>;
+
+				/* Physical touchscreen is mounted 180 degrees. */
+				touchscreen-inverted-x;
+				touchscreen-inverted-y;
+
+				touchscreen-fuzz = <3>;
+				touchscreen-average-samples = <4>;
+				max-touch-number = <5>;
+			};
+		};
+	};
+
+	/*
+	 * I2C1 power subsystem.
+	 *
+	 * MAX17048 is the preferred fuel gauge when fitted.
+	 * BQ25890 is the charger and provides the fallback voltage-based
+	 * fuel-gauge path when MAX17048 is not present.
+	 *
+	 * The pibrick-battery driver is responsible for selecting MAX17048
+	 * when it is present and using the BQ25890 fallback otherwise.
+	 */
+	fragment@3 {
+		target = <&i2c1>;
+		__overlay__ {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "okay";
+
+			pibrick_charger: charger@6a {
+				compatible = "ti,bq25890";
+				reg = <0x6a>;
+				status = "okay";
+
+				pibrick,battery-capacity-mah = <5000>;
+				pibrick,charge-current-ma = <4000>;
+
+				ti,battery-regulation-voltage = <4100000>;
+				ti,charge-current = <4000000>;
+				ti,termination-current = <50000>;
+				ti,precharge-current = <128000>;
+				ti,minimum-sys-voltage = <3600000>;
+				ti,boost-voltage = <5000000>;
+				ti,boost-max-current = <3000000>;
+				ti,use-ilim-pin;
+				ti,thermal-regulation-threshold = <120>;
+
+				interrupt-parent = <&gpio>;
+				interrupts = <26 2>;
+			};
+
+			pibrick_battery: battery-gauge@36 {
+				compatible = "pibrick,pibrick-battery";
+				reg = <0x36>;
+				status = "okay";
+				pibrick,battery-capacity-mah = <5000>;
+			};
+		};
+	};
+
+	__overrides__ {
+		battery_capacity = <&pibrick_charger>, "pibrick,battery-capacity-mah:0",
+					   <&pibrick_battery>, "pibrick,battery-capacity-mah:0";
+		charge_current_ma = <&pibrick_charger>, "pibrick,charge-current-ma:0";
+	};
+};
