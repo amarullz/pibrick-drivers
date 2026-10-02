@@ -89,7 +89,7 @@ install_dependencies()
             header_package="linux-headers-rpi-v6"
             ;;
         *)
-            die "Unsupported Raspberry Pi kernel: ${KERNEL_VERSION}"
+            header_package="linux-headers-${KERNEL_VERSION}"
             ;;
     esac
 
