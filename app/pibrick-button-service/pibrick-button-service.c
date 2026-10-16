@@ -999,7 +999,9 @@ int main(void)
      */
     system("rmmod gpio_keys");
     system("rmmod hyn_ts");
+    system("rmmod edt_ft5x06");
     system("modprobe hyn_ts");
+    system("modprobe edt_ft5x06");
     uk_init();
 
 
