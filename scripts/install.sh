@@ -26,6 +26,14 @@ OVERLAY_FILE="${OVERLAY_DIR}/pibrick.dtbo"
 BUTTON_APP_DIR="${ROOT_DIR}/app/pibrick-button-service"
 KEYBOARD_APP_DIR="${ROOT_DIR}/app/pibrick-kbd"
 
+# piBrick Plymouth splash
+SPLASH_SOURCE="/app/splash/pibrick-splash.png"
+PLYMOUTH_THEME_DIR="/usr/share/plymouth/themes/pix"
+PLYMOUTH_SPLASH="${PLYMOUTH_THEME_DIR}/splash.png"
+SPLASH_BACKUP_DIR="/var/lib/pibrick-drivers/plymouth"
+SPLASH_BACKUP="${SPLASH_BACKUP_DIR}/original-splash.png"
+SPLASH_MARKER="${SPLASH_BACKUP_DIR}/installed"
+
 die()
 {
     echo
@@ -245,6 +253,54 @@ install_keyboard_application()
     make -C "${KEYBOARD_APP_DIR}" install
 }
 
+install_pibrick_splash() {
+    if [[ ! -f "$SPLASH_SOURCE" ]]; then
+        echo "WARNING: piBrick splash image not found: $SPLASH_SOURCE"
+        echo "Skipping splash installation."
+        return 0
+    fi
+
+    if [[ ! -f "$PLYMOUTH_SPLASH" ]]; then
+        echo "WARNING: Raspberry Pi OS splash not found: $PLYMOUTH_SPLASH"
+        echo "Skipping splash installation."
+        return 0
+    fi
+
+    local active_theme=""
+    if command -v plymouth-set-default-theme >/dev/null 2>&1; then
+        active_theme="$(plymouth-set-default-theme 2>/dev/null || true)"
+    fi
+
+    if [[ "$active_theme" != "pix" ]]; then
+        echo "WARNING: Active Plymouth theme is '${active_theme:-unknown}', not pix."
+        echo "Skipping splash replacement to avoid modifying the wrong theme."
+        return 0
+    fi
+
+    # Preserve the original image on the first installation only.
+    if [[ ! -f "$SPLASH_BACKUP" ]]; then
+        mkdir -p "$SPLASH_BACKUP_DIR"
+        cp -a "$PLYMOUTH_SPLASH" "$SPLASH_BACKUP"
+    fi
+
+    install -m 0644 "$SPLASH_SOURCE" "$PLYMOUTH_SPLASH"
+
+    touch "$SPLASH_MARKER"
+    echo "Installed piBrick Plymouth splash."
+
+    # Rebuild the initramfs only when one is configured/present.
+    if compgen -G "/boot/firmware/initramfs*" >/dev/null ||
+       compgen -G "/boot/initramfs*" >/dev/null; then
+        if command -v plymouth-set-default-theme >/dev/null 2>&1; then
+            plymouth-set-default-theme --rebuild-initrd pix ||
+                echo "WARNING: Could not rebuild initramfs automatically."
+        elif command -v update-initramfs >/dev/null 2>&1; then
+            update-initramfs -u -k all ||
+                echo "WARNING: Could not rebuild initramfs automatically."
+        fi
+    fi
+}
+
 show_status()
 {
     info "Installation complete"
@@ -348,7 +404,7 @@ main()
     install_button_service
     install_keyboard_application
 
-    
+    install_pibrick_splash
 
     show_status
 }

@@ -6,6 +6,16 @@ This repository contains the hardware support required by piBrick, including the
 
 > **piBrick – A building block for handheld computing.**
 
+
+## Quick Installation Guide
+
+The recommended installation method is:
+
+```bash
+cd pibrick-drivers/scripts
+bash ./install.sh
+```
+
 ---
 
 ## Table of Contents
@@ -1335,7 +1345,7 @@ The recommended installation method is:
 
 ```bash
 cd pibrick-drivers/scripts
-sudo ./install.sh
+bash ./install.sh
 ```
 
 The installer performs the complete piBrick setup.
