@@ -27,7 +27,7 @@ BUTTON_APP_DIR="${ROOT_DIR}/app/pibrick-button-service"
 KEYBOARD_APP_DIR="${ROOT_DIR}/app/pibrick-kbd"
 
 # piBrick Plymouth splash
-SPLASH_SOURCE="/app/splash/pibrick-splash.png"
+SPLASH_SOURCE="${ROOT_DIR}/app/splash/pibrick-splash.png"
 PLYMOUTH_THEME_DIR="/usr/share/plymouth/themes/pix"
 PLYMOUTH_SPLASH="${PLYMOUTH_THEME_DIR}/splash.png"
 SPLASH_BACKUP_DIR="/var/lib/pibrick-drivers/plymouth"
