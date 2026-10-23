@@ -291,10 +291,10 @@ static void cst66xx_rst(void)
         hyn_set_i2c_addr(hyn_66xxdata,MAIN_I2C_ADDR);
     }
     gpio_set_value(hyn_66xxdata->plat_data.reset_gpio,0);
-    // msleep(8);
-    msleep(15);
+    msleep(8);
+    //msleep(15);
     gpio_set_value(hyn_66xxdata->plat_data.reset_gpio,1);
-    msleep(30);
+    //msleep(30);
 }
 
 static int cst66xx_wait_ready(u16 times,u8 ms,u16 reg,u16 check_vlue)
