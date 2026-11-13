@@ -144,7 +144,7 @@
 				pibrick,battery-capacity-mah = <5000>;
 				pibrick,charge-current-ma = <4000>;
 
-				ti,battery-regulation-voltage = <4100000>;
+				ti,battery-regulation-voltage = <4200000>;
 				ti,charge-current = <4000000>;
 				ti,termination-current = <50000>;
 				ti,precharge-current = <128000>;
@@ -163,6 +163,11 @@
 				reg = <0x70>;
 				status = "okay";
 				pibrick,battery-capacity-mah = <5000>;
+				pibrick,battery-max-voltage-uv = <4200000>;
+
+				/* Synchronize SOC only after confirmed charger termination. */
+				pibrick,full-voltage-tolerance-uv = <50000>;
+				pibrick,full-confirmation-ms = <30000>;
 			};
 
 			pibrick_battery: battery-gauge@36 {
@@ -171,7 +176,7 @@
 				status = "okay";
 				pibrick,battery-capacity-mah = <5000>;
 			};
-			
+
 /* Enable accelerometer
 			pibrick_accel: accelerometer@1c {
 				compatible = "pibrick,mma8451";
@@ -187,6 +192,7 @@
 					   <&pibrick_battery>, "pibrick,battery-capacity-mah:0",
 					   <&stc3115>, "pibrick,battery-capacity-mah:0";
 		charge_current_ma = <&pibrick_charger>, "pibrick,charge-current-ma:0";
-		battery_max_voltage_uv = <&pibrick_charger>, "pibrick,battery-max-voltage-uv:0";
+		battery_max_voltage_uv = <&pibrick_charger>, "pibrick,battery-max-voltage-uv:0",
+    					<&stc3115>, "pibrick,battery-max-voltage-uv:0";
 	};
 };

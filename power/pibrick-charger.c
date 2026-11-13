@@ -2042,8 +2042,8 @@ static int bq25890_fw_probe(struct bq25890_device *bq)
 			return -EPROBE_DEFER;
 	}
 
-	/* piBrick single-cell LiPo defaults: 5Ah and 4.1V regulation. */
-	bq->gauge_full_voltage_mv = 4100;
+	/* piBrick single-cell LiPo defaults: 5Ah and 4.2V regulation. */
+	bq->gauge_full_voltage_mv = 4200;
 	bq->battery_capacity_uah = BQ_DEFAULT_CAPACITY_UAH;
 	if (device_property_read_u32(bq->dev, "pibrick,battery-capacity-mah",
 					     &capacity_mah) == 0) {
@@ -2100,15 +2100,15 @@ static int bq25890_fw_probe(struct bq25890_device *bq)
 			}
 	}
 
-	/* piBrick config.txt: battery_max_voltage=4100000 or 4200000 (uV). */
+	/* piBrick config.txt: battery_max_voltage_uv=4200000 (default) or 4300000 (uV). */
 	{
 		u32 max_battery_uv;
 		if (!device_property_read_u32(bq->dev,
 					      "pibrick,battery-max-voltage-uv",
 					      &max_battery_uv)) {
-			if (max_battery_uv != 4100000 && max_battery_uv != 4200000)
+			if (max_battery_uv != 4200000 && max_battery_uv != 4300000)
 				return dev_err_probe(bq->dev, -EINVAL,
-						     "battery max voltage must be 4100000 or 4200000 uV\n");
+						     "battery max voltage must be 4200000 or 4300000 uV\n");
 			init->vreg = bq25890_find_idx(max_battery_uv, TBL_VREG);
 			bq->gauge_full_voltage_mv = max_battery_uv / 1000;
 		}
