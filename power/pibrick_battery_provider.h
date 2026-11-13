@@ -14,6 +14,8 @@
 #include <linux/power_supply.h>
 
 struct pibrick_battery_provider_ops {
+	/* Higher priority providers take precedence (STC3115 > MAX17048). */
+	int priority;
 	int (*get_property)(void *data, enum power_supply_property psp,
 			    union power_supply_propval *val);
 };

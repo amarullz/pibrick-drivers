@@ -169,7 +169,37 @@ remove_config()
     fi
 }
 
+remove_existing_dkms()
+{
+    info "Checking existing DKMS registration"
 
+    if ! command -v dkms >/dev/null 2>&1; then
+        return 0
+    fi
+
+    local dkms_conf="/var/lib/dkms/${DKMS_NAME}/${DKMS_VERSION}/source"
+    local dkms_source="/usr/src/${DKMS_NAME}-${DKMS_VERSION}"
+
+    # Remove existing DKMS registration, regardless of status.
+    if [[ -e "${dkms_conf}" ]] || \
+       dkms status "${DKMS_NAME}/${DKMS_VERSION}" 2>/dev/null |
+       grep -q "${DKMS_NAME}/${DKMS_VERSION}"; then
+
+        info "Removing existing DKMS registration"
+
+        dkms remove \
+            "${DKMS_NAME}/${DKMS_VERSION}" \
+            --all || true
+    fi
+
+    # Clean up stale DKMS registration directory if it remains.
+    if [[ -d "/var/lib/dkms/${DKMS_NAME}/${DKMS_VERSION}" ]]; then
+        rm -rf "/var/lib/dkms/${DKMS_NAME}/${DKMS_VERSION}"
+    fi
+
+    # Remove old source tree before copying updated sources.
+    rm -rf "${dkms_source}"
+}
 main()
 {
     require_root "$@"
@@ -190,6 +220,8 @@ main()
 
     rm -rf "${DKMS_SOURCE_DIR}"
     depmod -a
+    rm -f /etc/modules-load.d/pibrick.conf
+    remove_existing_dkms
 
     show_status
 }

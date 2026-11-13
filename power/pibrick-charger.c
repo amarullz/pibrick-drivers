@@ -158,6 +158,7 @@ struct bq25890_device {
 	struct mutex provider_lock;
 	void *battery_provider_data;
 	const struct pibrick_battery_provider_ops *battery_provider_ops;
+	int battery_provider_priority;
 	struct power_supply *battery;
 	struct power_supply_desc battery_desc;
 	bool gauge_initialized;
@@ -165,6 +166,7 @@ struct bq25890_device {
 	int gauge_prev_soc;
 	int gauge_prev_voltage_mv;
 	int gauge_full_voltage_mv;
+	int gauge_filtered_voltage_mv;
 	unsigned long gauge_last_jiffies;
 	bool gauge_sag_active;
 	/* Battery design capacity in uAh, configurable from Device Tree. */
@@ -557,70 +559,17 @@ static int bq25890_get_ichgr(struct bq25890_device *bq)
  * current.  Therefore the fallback uses a voltage/SOC curve, conservative
  * current integration, and load-sag protection based on voltage trajectory.
  */
-struct pibrick_voltage_soc_point {
-	int voltage_mv;
-	int soc;
-};
+/* Stateful, linear voltage target; history/rate limiting is applied below.
+ * No voltage/SOC lookup table: full voltage is configured as 4.1V or 4.2V.
+ */
+#define PIBRICK_GAUGE_EMPTY_MV 3300
+#define PIBRICK_GAUGE_BATTERY_RESISTANCE_MOHM 50
+#define PIBRICK_GAUGE_DISCHARGE_CURRENT_UA 1000000
 
-static const struct pibrick_voltage_soc_point pibrick_voltage_soc_table[] = {
-	{ 4200, 100 }, { 4150, 98 }, { 4100, 95 }, { 4050, 90 },
-	{ 4000, 85 }, { 3950, 78 }, { 3900, 70 }, { 3850, 62 },
-	{ 3800, 52 }, { 3750, 42 }, { 3700, 32 }, { 3650, 23 },
-	{ 3600, 16 }, { 3550, 10 }, { 3500, 5 }, { 3450, 2 },
-	{ 3400, 0 },
-};
-
-#define PIBRICK_GAUGE_BATTERY_RESISTANCE_MOHM	50
-#define PIBRICK_GAUGE_DISCHARGE_CURRENT_UA	1000000
-#define PIBRICK_GAUGE_SAG_DETECT_UV		3700000
-#define PIBRICK_GAUGE_SAG_RELEASE_UV		3800000
-#define PIBRICK_GAUGE_SAG_MIN_DROP_PERCENT	6
-#define PIBRICK_GAUGE_MAX_DROP_PERCENT		3
-#define PIBRICK_GAUGE_MAX_RISE_PERCENT		5
-#define PIBRICK_GAUGE_SAG_DROP_PERCENT		1
-#define PIBRICK_GAUGE_BLEND_PERCENT		10
-
-static int pibrick_voltage_to_soc(int voltage_mv)
+static int pibrick_voltage_to_soc(int voltage_mv, int full_mv)
 {
-	int i;
-
-	if (voltage_mv >= pibrick_voltage_soc_table[0].voltage_mv)
-		return 100;
-
-	if (voltage_mv <= pibrick_voltage_soc_table[
-			ARRAY_SIZE(pibrick_voltage_soc_table) - 1].voltage_mv)
-		return 0;
-
-	for (i = 0; i < ARRAY_SIZE(pibrick_voltage_soc_table) - 1; i++) {
-		int v1 = pibrick_voltage_soc_table[i].voltage_mv;
-		int v2 = pibrick_voltage_soc_table[i + 1].voltage_mv;
-		int s1 = pibrick_voltage_soc_table[i].soc;
-		int s2 = pibrick_voltage_soc_table[i + 1].soc;
-
-		if (voltage_mv <= v1 && voltage_mv >= v2)
-			return s1 + ((v1 - voltage_mv) * (s2 - s1)) / (v1 - v2);
-	}
-
-	return 0;
-}
-
-static int pibrick_compensated_voltage_mv(int voltage_mv, int current_ua,
-					  bool charging)
-{
-	int current_ma = abs(current_ua) / 1000;
-	int sag_mv;
-
-	if (!current_ma)
-		return voltage_mv;
-
-	sag_mv = (current_ma * PIBRICK_GAUGE_BATTERY_RESISTANCE_MOHM) / 1000;
-	if (sag_mv > 400)
-		sag_mv = 400;
-
-	if (charging)
-		return voltage_mv - sag_mv;
-
-	return voltage_mv + sag_mv;
+	return clamp(div_s64((s64)(voltage_mv - PIBRICK_GAUGE_EMPTY_MV) * 100,
+			     max(1, full_mv - PIBRICK_GAUGE_EMPTY_MV)), 0, 100);
 }
 
 static int bq25890_get_software_soc(struct bq25890_device *bq,
@@ -628,102 +577,60 @@ static int bq25890_get_software_soc(struct bq25890_device *bq,
 					bool charging, bool full)
 {
 	int voltage_mv = voltage_uv / 1000;
-	int compensated_mv;
-	int voltage_soc;
-	int delta;
-	unsigned long now = jiffies;
-	unsigned long elapsed;
-	int integrated_soc;
+	int filtered_mv, target_soc, delta, max_step;
+	unsigned long now = jiffies, elapsed_s;
 
 	if (full) {
 		bq->gauge_initialized = true;
 		bq->gauge_soc = 100;
 		bq->gauge_prev_soc = 100;
-		bq->gauge_full_voltage_mv = voltage_mv;
 		bq->gauge_prev_voltage_mv = voltage_mv;
+		bq->gauge_filtered_voltage_mv = voltage_mv;
 		bq->gauge_last_jiffies = now;
-		bq->gauge_sag_active = false;
 		return 100;
 	}
 
-	compensated_mv = pibrick_compensated_voltage_mv(voltage_mv,
-							current_ua, charging);
-	voltage_soc = pibrick_voltage_to_soc(compensated_mv);
-
 	if (!bq->gauge_initialized) {
 		bq->gauge_initialized = true;
-		bq->gauge_soc = voltage_soc;
-		bq->gauge_prev_soc = voltage_soc;
+		bq->gauge_soc = pibrick_voltage_to_soc(voltage_mv,
+						      bq->gauge_full_voltage_mv);
+		bq->gauge_prev_soc = bq->gauge_soc;
 		bq->gauge_prev_voltage_mv = voltage_mv;
+		bq->gauge_filtered_voltage_mv = voltage_mv;
 		bq->gauge_last_jiffies = now;
-		bq->gauge_sag_active = false;
 		return bq->gauge_soc;
 	}
 
-	elapsed = jiffies - bq->gauge_last_jiffies;
+	elapsed_s = max_t(unsigned long, 1,
+			  jiffies_to_msecs(now - bq->gauge_last_jiffies) / 1000);
+	/* Bound elapsed time after long idle/suspend gaps. */
+	elapsed_s = min_t(unsigned long, elapsed_s, 300);
 	bq->gauge_last_jiffies = now;
 	bq->gauge_prev_soc = bq->gauge_soc;
 
-	/* Integrate the BQ current when charging.  During discharge BQ25890 does
-	 * not measure battery current, so use the conservative board average. */
-	integrated_soc = bq->gauge_soc;
-	if (elapsed) {
-		/* Current integration is intentionally small and acts as a stabilizer,
-		 * not as a replacement for the voltage estimate. */
-		if (current_ua > 0 && charging) {
-			long long duah = (long long)current_ua * elapsed;
-			duah = div_s64(duah, HZ * 3600LL);
-			integrated_soc += (int)div_s64(duah * 100,
-						(s64)bq->battery_capacity_uah);
-		} else if (!charging) {
-			long long duah = (long long)PIBRICK_GAUGE_DISCHARGE_CURRENT_UA * elapsed;
-			duah = div_s64(duah, HZ * 3600LL);
-			integrated_soc -= (int)div_s64(duah * 100,
-						(s64)bq->battery_capacity_uah);
-		}
+	/* 1/4 EMA rejects CM5 load-step sag without hiding sustained changes. */
+	bq->gauge_filtered_voltage_mv +=
+		(voltage_mv - bq->gauge_filtered_voltage_mv) / 4;
+	filtered_mv = bq->gauge_filtered_voltage_mv;
+	target_soc = pibrick_voltage_to_soc(filtered_mv,
+					   bq->gauge_full_voltage_mv);
+
+	delta = target_soc - bq->gauge_soc;
+	if (delta < 0) {
+		/* Discharge: follow falling voltage at up to 1% / 20 seconds. */
+		max_step = max_t(int, 1, elapsed_s / 20);
+		bq->gauge_soc -= min(-delta, max_step);
+	} else if (delta > 0 && charging) {
+		/* Charging: slow positive integration, about 1% / 60 seconds. */
+		max_step = max_t(int, 1, elapsed_s / 60);
+		bq->gauge_soc += min(delta, max_step);
+	} else if (delta > 0) {
+		/* Voltage rebound without charging is usually load removal, not charge. */
+		max_step = max_t(int, 1, elapsed_s / 600);
+		bq->gauge_soc += min(delta, max_step);
 	}
 
-	if (integrated_soc < 0)
-		integrated_soc = 0;
-	if (integrated_soc > 100)
-		integrated_soc = 100;
-
-	/* Blend the voltage estimate slowly into the historical estimate. */
-	if (voltage_soc > integrated_soc)
-		integrated_soc += max(1, (voltage_soc - integrated_soc) /
-					PIBRICK_GAUGE_BLEND_PERCENT);
-	else if (voltage_soc < integrated_soc)
-		integrated_soc -= max(1, (integrated_soc - voltage_soc) /
-					PIBRICK_GAUGE_BLEND_PERCENT);
-
-	if (!charging &&
-		voltage_uv < PIBRICK_GAUGE_SAG_DETECT_UV &&
-		bq->gauge_prev_soc - integrated_soc >=
-			PIBRICK_GAUGE_SAG_MIN_DROP_PERCENT)
-		bq->gauge_sag_active = true;
-
-	if (bq->gauge_sag_active) {
-		if (voltage_uv >= PIBRICK_GAUGE_SAG_RELEASE_UV || charging) {
-			bq->gauge_sag_active = false;
-		} else if (integrated_soc < bq->gauge_prev_soc) {
-			integrated_soc = bq->gauge_prev_soc -
-				PIBRICK_GAUGE_SAG_DROP_PERCENT;
-		} else {
-			integrated_soc = bq->gauge_prev_soc;
-		}
-	}
-
-	if (!bq->gauge_sag_active) {
-		delta = integrated_soc - bq->gauge_prev_soc;
-		if (delta < -PIBRICK_GAUGE_MAX_DROP_PERCENT)
-			integrated_soc = bq->gauge_prev_soc -
-				PIBRICK_GAUGE_MAX_DROP_PERCENT;
-		else if (delta > PIBRICK_GAUGE_MAX_RISE_PERCENT)
-			integrated_soc = bq->gauge_prev_soc +
-				PIBRICK_GAUGE_MAX_RISE_PERCENT;
-	}
-
-	bq->gauge_soc = clamp(integrated_soc, 0, 100);
+	bq->gauge_soc = clamp(bq->gauge_soc, 0, 100);
 	bq->gauge_prev_voltage_mv = voltage_mv;
 	return bq->gauge_soc;
 }
@@ -1611,17 +1518,17 @@ static int pibrick_charger_get_property(struct power_supply *psy,
 			val->intval = POWER_SUPPLY_CAPACITY_LEVEL_NORMAL;
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN:
-		val->intval = 5000000;
+		val->intval = bq->battery_capacity_uah;
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_NOW:
 		val->intval = soc * bq->battery_capacity_uah / 100;
 		break;
 	case POWER_SUPPLY_PROP_ENERGY_NOW:
-		val->intval = soc * 18500000 / 100;
+		val->intval = (int)div_s64((s64)soc * bq->battery_capacity_uah * 3700, 100000);
 		break;
 	case POWER_SUPPLY_PROP_ENERGY_FULL:
 	case POWER_SUPPLY_PROP_ENERGY_FULL_DESIGN:
-		val->intval = 18500000;
+		val->intval = (int)div_u64((u64)bq->battery_capacity_uah * 3700, 1000);
 		break;
 	case POWER_SUPPLY_PROP_TECHNOLOGY:
 		val->intval = POWER_SUPPLY_TECHNOLOGY_LIPO;
@@ -1677,8 +1584,15 @@ int pibrick_battery_provider_register(void *data,
 
 	bq = power_supply_get_drvdata(battery);
 	mutex_lock(&bq->provider_lock);
+	if (bq->battery_provider_ops &&
+	    bq->battery_provider_priority >= ops->priority) {
+		mutex_unlock(&bq->provider_lock);
+		power_supply_put(battery);
+		return -EBUSY;
+	}
 	bq->battery_provider_data = data;
 	bq->battery_provider_ops = ops;
+	bq->battery_provider_priority = ops->priority;
 	mutex_unlock(&bq->provider_lock);
 	power_supply_changed(battery);
 	power_supply_put(battery);
@@ -1700,6 +1614,7 @@ void pibrick_battery_provider_unregister(void *data)
 	if (bq->battery_provider_data == data) {
 		bq->battery_provider_data = NULL;
 		bq->battery_provider_ops = NULL;
+		bq->battery_provider_priority = 0;
 	}
 	mutex_unlock(&bq->provider_lock);
 	power_supply_changed(battery);
@@ -2127,7 +2042,8 @@ static int bq25890_fw_probe(struct bq25890_device *bq)
 			return -EPROBE_DEFER;
 	}
 
-	/* Battery design capacity is exposed to the software fuel gauge. */
+	/* piBrick single-cell LiPo defaults: 5Ah and 4.1V regulation. */
+	bq->gauge_full_voltage_mv = 4100;
 	bq->battery_capacity_uah = BQ_DEFAULT_CAPACITY_UAH;
 	if (device_property_read_u32(bq->dev, "pibrick,battery-capacity-mah",
 					     &capacity_mah) == 0) {
@@ -2182,6 +2098,20 @@ static int bq25890_fw_probe(struct bq25890_device *bq)
 				init->ichg = bq25890_find_idx(charge_current_ma * 1000,
 							      TBL_ICHG);
 			}
+	}
+
+	/* piBrick config.txt: battery_max_voltage=4100000 or 4200000 (uV). */
+	{
+		u32 max_battery_uv;
+		if (!device_property_read_u32(bq->dev,
+					      "pibrick,battery-max-voltage-uv",
+					      &max_battery_uv)) {
+			if (max_battery_uv != 4100000 && max_battery_uv != 4200000)
+				return dev_err_probe(bq->dev, -EINVAL,
+						     "battery max voltage must be 4100000 or 4200000 uV\n");
+			init->vreg = bq25890_find_idx(max_battery_uv, TBL_VREG);
+			bq->gauge_full_voltage_mv = max_battery_uv / 1000;
+		}
 	}
 
 	init->ilim_en = device_property_read_bool(bq->dev, "ti,use-ilim-pin");

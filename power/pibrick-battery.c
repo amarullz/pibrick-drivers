@@ -124,8 +124,10 @@ struct max17048 {
   /* User-visible compensated SOC, also kept at 1/256% precision. */
   u16 display_soc_x256;
   bool display_soc_valid;
-    bool load_sag_active;
-  unsigned long sag_hold_until;
+  bool load_sag_active;
+  int previous_voltage_uv;
+  int filtered_voltage_uv;
+  unsigned long last_soc_update;
 };
 
 static int max17048_read_reg(struct max17048 *battery, u8 reg, u32 *val)
@@ -208,151 +210,73 @@ static int max17048_get_charger_status(struct max17048 *battery)
 
 static int max17048_get_soc(struct max17048 *battery)
 {
-    int ret;
-    u16 soc_x256;
-    int raw_soc_x256;
-    int raw_soc;
-    int vcell_uv;
-    int crate;
-    int status;
-    int corrected_soc;
-    int delta;
-    int previous_soc;
-    bool high_load;
+    int ret, vcell_uv, status, corrected_soc, previous_soc;
+    int16_t crate_value = 0;
+    int target_x256, delta_x256, max_step_x256;
+    int voltage_delta;
+    unsigned long now = jiffies, elapsed_s;
+    bool charging, voltage_falling, voltage_rising;
+    u16 raw_soc_x256;
 
-    ret = max17048_get_raw_soc_x256(battery, &soc_x256);
-    if (ret < 0)
-        return ret;
-
-    raw_soc_x256 = soc_x256;
-    raw_soc = raw_soc_x256 / 256;
-    if (raw_soc > 100)
-        raw_soc = 100;
-
-    /*
-     * The board terminates charging at 4.1 V, so the MAX17048 may report
-     * substantially less than 100% at charger termination. Learn the actual
-     * full point from the charger when it reports FULL.
-     */
+    ret = max17048_get_raw_soc_x256(battery, &raw_soc_x256);
+    if (ret) return ret;
     status = max17048_get_charger_status(battery);
-
-    if (status == POWER_SUPPLY_STATUS_FULL &&
-        raw_soc >= MAX17048_FULL_SOC_MIN_PERCENT &&
-        raw_soc <= MAX17048_FULL_SOC_MAX_PERCENT)
+    if (status == POWER_SUPPLY_STATUS_FULL && raw_soc_x256 / 256 >= 80)
         battery->full_soc_x256 = raw_soc_x256;
-
-    if (battery->full_soc_x256 >=
-        MAX17048_FULL_SOC_MIN_PERCENT * 256) {
-        corrected_soc = div_s64((s64)raw_soc_x256 * 100,
-                                battery->full_soc_x256);
-    } else {
-        corrected_soc = div_s64((s64)raw_soc_x256 * 100,
-                                MAX17048_DEFAULT_FULL_SOC_X256);
-    }
-
-    if (corrected_soc > 100)
-        corrected_soc = 100;
-    if (corrected_soc < 0)
-        corrected_soc = 0;
+    if (battery->full_soc_x256 >= 80 * 256)
+        corrected_soc = div_s64((s64)raw_soc_x256 * 100, battery->full_soc_x256);
+    else
+        corrected_soc = div_s64((s64)raw_soc_x256 * 100, MAX17048_DEFAULT_FULL_SOC_X256);
+    corrected_soc = clamp(corrected_soc, 0, 100);
 
     vcell_uv = max17048_get_vcell(battery);
-    if (vcell_uv < 0)
-        return vcell_uv;
-
-    /*
-     * CRATE is not a calibrated current measurement. It is used only as
-     * a relative indication that the battery is under substantial load.
-     */
-    {
-        int16_t crate_value;
-
-        ret = max17048_get_crate(battery, &crate_value);
-        if (ret < 0)
-            crate_value = 0;
-
-        crate = crate_value;
-        if (crate < 0)
-            crate = -crate;
-    }
-
-    high_load = crate >= MAX17048_LOAD_SAG_MAX_CRATE;
+    if (vcell_uv < 0) return vcell_uv;
+    ret = max17048_get_crate(battery, &crate_value);
+    if (ret) crate_value = 0;
+    charging = status == POWER_SUPPLY_STATUS_CHARGING ||
+               status == POWER_SUPPLY_STATUS_FULL || crate_value > MAX17048_CRATE_NOISE_THR;
 
     if (!battery->display_soc_valid) {
         battery->display_soc_x256 = corrected_soc * 256;
         battery->display_soc_valid = true;
-        battery->load_sag_active = false;
+        battery->filtered_voltage_uv = vcell_uv;
+        battery->previous_voltage_uv = vcell_uv;
+        battery->last_soc_update = now;
         return corrected_soc;
     }
 
+    elapsed_s = max_t(unsigned long, 1, jiffies_to_msecs(now - battery->last_soc_update) / 1000);
+    elapsed_s = min_t(unsigned long, elapsed_s, 300);
+    battery->last_soc_update = now;
     previous_soc = battery->display_soc_x256 / 256;
 
-    /*
-     * Detect a sudden SOC collapse while the battery voltage is below
-     * 3.70 V and the gauge indicates substantial discharge load.
-     *
-     * We deliberately do not require VCELL < 3.5 V. By then the MAX17048
-     * may already have made the large SOC correction we are trying to mask.
-     */
-    if (!battery->load_sag_active &&
-        vcell_uv < MAX17048_LOAD_SAG_DETECT_UV &&
-        high_load &&
-        previous_soc - corrected_soc >=
-            MAX17048_LOAD_SAG_MIN_DROP_PERCENT) {
-        battery->load_sag_active = true;
+    /* Keep a voltage history. EMA rejects short CM5 load spikes. */
+    battery->filtered_voltage_uv += (vcell_uv - battery->filtered_voltage_uv) / 4;
+    voltage_delta = battery->filtered_voltage_uv - battery->previous_voltage_uv;
+    voltage_falling = voltage_delta < -2000;
+    voltage_rising = voltage_delta > 2000;
+    battery->previous_voltage_uv = battery->filtered_voltage_uv;
+
+    target_x256 = corrected_soc * 256;
+    delta_x256 = target_x256 - battery->display_soc_x256;
+    if (delta_x256 < 0) {
+        /* Falling voltage: decrease progressively, max 1% per 30 seconds. */
+        max_step_x256 = max_t(int, 1, (int)(elapsed_s * 256 / 30));
+        if (!voltage_falling) max_step_x256 = max_t(int, 1, max_step_x256 / 2);
+        battery->display_soc_x256 -= min(-delta_x256, max_step_x256);
+    } else if (delta_x256 > 0 && charging) {
+        /* Rising voltage while charging: about 1% per 60 seconds. */
+        max_step_x256 = max_t(int, 1, (int)(elapsed_s * 256 / 60));
+        battery->display_soc_x256 += min(delta_x256, max_step_x256);
+    } else if (delta_x256 > 0) {
+        /* Rising voltage off-charge is usually load recovery: 1% per 10 min. */
+        max_step_x256 = max_t(int, 1, (int)(elapsed_s * 256 / 600));
+        if (!voltage_rising) max_step_x256 = 1;
+        battery->display_soc_x256 += min(delta_x256, max_step_x256);
     }
 
-    if (battery->load_sag_active) {
-        /*
-         * Leave compensation only after the battery voltage has recovered.
-         * This hysteresis prevents the state from rapidly toggling around
-         * the detection threshold.
-         */
-        if (vcell_uv >= MAX17048_LOAD_SAG_RELEASE_UV ||
-            !high_load) {
-            battery->load_sag_active = false;
-        } else {
-            /*
-             * During sustained sag, preserve the last believable SOC.
-             * Allow only a small downward movement so a genuine discharge
-             * is still reflected.
-             */
-            if (corrected_soc < previous_soc) {
-                corrected_soc = previous_soc -
-                                MAX17048_LOAD_SAG_FOLLOW_STEP_PERCENT;
-                if (corrected_soc < 0)
-                    corrected_soc = 0;
-            } else if (corrected_soc > previous_soc) {
-                /*
-                 * Do not allow voltage/load fluctuations to create an
-                 * upward jump while the battery is still under sag.
-                 */
-                corrected_soc = previous_soc;
-            }
-        }
-    }
-
-    /*
-     * When not in sag mode, retain a modest slew limit so an isolated gauge
-     * sample cannot create a large visible jump. This does not replace the
-     * voltage/load-based sag detector above.
-     */
-    if (!battery->load_sag_active) {
-        if (corrected_soc < previous_soc) {
-            delta = previous_soc - corrected_soc;
-            if (delta > MAX17048_SOC_MAX_DROP_PER_UPDATE)
-                corrected_soc =
-                    previous_soc - MAX17048_SOC_MAX_DROP_PER_UPDATE;
-        } else if (corrected_soc > previous_soc) {
-            delta = corrected_soc - previous_soc;
-            if (delta > MAX17048_SOC_MAX_RISE_PER_UPDATE)
-                corrected_soc =
-                    previous_soc + MAX17048_SOC_MAX_RISE_PER_UPDATE;
-        }
-    }
-
-    battery->display_soc_x256 = corrected_soc * 256;
-
-    return corrected_soc;
+    battery->display_soc_x256 = clamp(battery->display_soc_x256, 0, 100 * 256);
+    return battery->display_soc_x256 / 256;
 }
 
 static int max17048_get_current(struct max17048 *battery, int *val)
@@ -541,6 +465,7 @@ static int max17048_provider_get_property(void *data,
 }
 
 static const struct pibrick_battery_provider_ops max17048_provider_ops = {
+  .priority = 100,
   .get_property = max17048_provider_get_property,
 };
 

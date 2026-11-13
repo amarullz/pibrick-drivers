@@ -125,12 +125,9 @@
 	/*
 	 * I2C1 power subsystem.
 	 *
-	 * MAX17048 is the preferred fuel gauge when fitted.
-	 * BQ25890 is the charger and provides the fallback voltage-based
-	 * fuel-gauge path when MAX17048 is not present.
-	 *
-	 * The pibrick-battery driver is responsible for selecting MAX17048
-	 * when it is present and using the BQ25890 fallback otherwise.
+	 * BQ25895 owns charging and the unified battery power_supply.
+	 * STC3115 is the primary fuel gauge, MAX17048 is secondary, and
+	 * BQ25895 voltage/history estimation is the final fallback.
 	 */
 	fragment@3 {
 		target = <&i2c1>;
@@ -161,8 +158,15 @@
 				interrupts = <26 2>;
 			};
 
+			stc3115: fuel-gauge@70 {
+				compatible = "pibrick,stc3115";
+				reg = <0x70>;
+				status = "okay";
+				pibrick,battery-capacity-mah = <5000>;
+			};
+
 			pibrick_battery: battery-gauge@36 {
-				compatible = "pibrick,pibrick-battery";
+				compatible = "pibrickcm5,max17048-battery";
 				reg = <0x36>;
 				status = "okay";
 				pibrick,battery-capacity-mah = <5000>;
@@ -180,7 +184,9 @@
 
 	__overrides__ {
 		battery_capacity = <&pibrick_charger>, "pibrick,battery-capacity-mah:0",
-					   <&pibrick_battery>, "pibrick,battery-capacity-mah:0";
+					   <&pibrick_battery>, "pibrick,battery-capacity-mah:0",
+					   <&stc3115>, "pibrick,battery-capacity-mah:0";
 		charge_current_ma = <&pibrick_charger>, "pibrick,charge-current-ma:0";
+		battery_max_voltage_uv = <&pibrick_charger>, "pibrick,battery-max-voltage-uv:0";
 	};
 };

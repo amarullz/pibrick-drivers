@@ -235,6 +235,7 @@ echo "[piBrick DKMS] Installed modules:"
 for module in \
 	panel-pibrick \
 	pibrick-battery \
+	pibrick-stc3115 \
 	pibrick-charger \
 	hyn_ts
 do

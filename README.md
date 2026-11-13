@@ -91,8 +91,9 @@ The main components are:
 * AMOLED display support
 * Display backlight control
 * Display color profiles
-* MAX17048 battery gauge support
-* BQ25890 charger support
+* STC3115 primary fuel-gauge support
+* MAX17048 fallback fuel-gauge support
+* BQ25895 charger support and final voltage-estimation fallback
 * Hynitron touchscreen support
 * FT5x06 touchscreen support
 * GPIO power/user button handling
@@ -121,12 +122,13 @@ The main components are:
 
 ### Power
 
-* MAX17048 fuel-gauge support
-* BQ25890 charger support
+* STC3115 fuel gauge as the preferred primary SOC source
+* MAX17048 as the fallback fuel gauge when STC3115 is unavailable
+* BQ25895 charger and voltage-based SOC fallback when neither fuel gauge is available
 * Configurable battery capacity
-* Configurable charge current
-* Device Tree configuration
-* Unified piBrick power integration
+* Configurable charging current
+* Configurable battery regulation voltage (4.10 V or 4.20 V)
+* Unified battery-provider selection with priority-based registration
 
 ### Touchscreen
 
@@ -204,6 +206,7 @@ The piBrick keyboard is controlled through its Raw HID interface.
 ├── power
 │   ├── pibrick-battery.c
 │   ├── pibrick-charger.c
+│   ├── pibrick-stc3115.c
 │   └── pibrick_battery_provider.h
 │
 ├── scripts
@@ -222,14 +225,15 @@ The piBrick keyboard is controlled through its Raw HID interface.
 
 # Kernel Modules
 
-The repository builds four kernel modules.
+The repository builds the following kernel modules (the exact module set depends on the enabled components):
 
-| Module            | Source                    | Purpose                |
-| ----------------- | ------------------------- | ---------------------- |
-| `panel-pibrick`   | `panel/panel-pibrick.c`   | piBrick AMOLED display |
-| `pibrick-battery` | `power/pibrick-battery.c` | MAX17048 battery gauge |
-| `pibrick-charger` | `power/pibrick-charger.c` | BQ25890 charger        |
-| `hyn_ts`          | `touch/hyn_ts/`           | Hynitron touchscreen   |
+| Module | Source | Purpose |
+| --- | --- | --- |
+| `panel-pibrick` | `panel/panel-pibrick.c` | piBrick AMOLED display |
+| `pibrick-battery` | `power/pibrick-battery.c` | MAX17048 fallback fuel gauge |
+| `pibrick-charger` | `power/pibrick-charger.c` | BQ25895 charger and final SOC fallback |
+| `pibrick-stc3115` | `power/pibrick-stc3115.c` | STC3115 primary fuel gauge |
+| `hyn_ts` | `touch/hyn_ts/` | Hynitron touchscreen |
 
 The power drivers are kept under the `power/` directory because the charger and battery gauge form the piBrick power subsystem.
 
@@ -475,27 +479,35 @@ power/
 └── pibrick_battery_provider.h
 ```
 
-The two main devices are:
+The power subsystem uses one charger and up to two dedicated fuel gauges:
 
 ```text
-MAX17048
-   │
-   └── pibrick-battery
-
-BQ25890
-   │
-   └── pibrick-charger
+STC3115 (priority 200)
+   └── Primary battery SOC provider
+        │
+MAX17048 (priority 100)
+   └── Fallback battery SOC provider
+        │
+BQ25895
+   ├── Charger control and charging status
+   └── Voltage-based SOC estimator if neither fuel gauge is active
 ```
+
+The active fuel-gauge provider is selected by registration priority. When STC3115 is detected and registers successfully, it replaces MAX17048 as the active provider. MAX17048 and the BQ voltage estimator do not supply the battery SOC while STC3115 is active.
+
+STC3115 uses the board's fixed 5 mΩ current-sense resistor. This value is a hardware design constant, not a user-configurable setting. Its charge-counter configuration is calculated from the configured battery capacity.
+
+If STC3115 is absent, MAX17048 can provide SOC. If both fuel gauges are unavailable, the charger driver can provide an approximate voltage-based SOC estimate.
 
 ---
 
 ## `pibrick-battery`
 
-The `pibrick-battery` driver provides battery information using the **MAX17048** fuel-gauge IC.
+The `pibrick-battery` driver provides the MAX17048 fallback fuel-gauge provider.
 
-The battery capacity is configurable through Device Tree.
+It registers with priority `100`. The STC3115 provider has priority `200`, so STC3115 takes precedence whenever it is detected and successfully registered.
 
-Example:
+Battery capacity is configurable through Device Tree:
 
 ```dts
 pibrick,battery-capacity-mah = <5000>;
@@ -507,7 +519,9 @@ The driver is designed to integrate with the Linux power-supply subsystem.
 
 ## `pibrick-charger`
 
-The `pibrick-charger` driver provides charger support using the **BQ25890**.
+The `pibrick-charger` driver provides charger support using the **BQ25895**.
+
+It also supplies the final voltage-based SOC fallback when neither STC3115 nor MAX17048 is registered.
 
 The charger configuration includes:
 
@@ -525,33 +539,41 @@ The charger configuration includes:
 The default piBrick configuration uses:
 
 ```text
-Battery capacity: 5000 mAh
-Charge current:   4000 mA
+Battery capacity:       5000 mAh
+Charge current:         4000 mA
+Battery regulation:     4100000 uV (4.10 V)
 ```
 
 ---
 
 ## Battery Configuration
 
-The Device Tree properties are:
+The battery and charger settings are exposed through the piBrick Device Tree overlay.
 
-```dts
-pibrick,battery-capacity-mah = <5000>;
-pibrick,charge-current-ma = <4000>;
-```
+| `config.txt` parameter | Unit | Default | Purpose |
+| --- | --- | ---: | --- |
+| `battery_capacity` | mAh | `5000` | Nominal battery capacity |
+| `charge_current_ma` | mA | `4000` | Configured charging current |
+| `battery_max_voltage_uv` | µV | `4100000` | Battery regulation voltage |
 
-The configuration can also be overridden from `config.txt`:
+`battery_max_voltage_uv` accepts the supported targets:
+
+- `4100000` for 4.10 V
+- `4200000` for 4.20 V
+
+Example for a 5000 mAh cell with 4.10 V regulation:
 
 ```ini
-dtoverlay=pibrick,battery_capacity=5000,charge_current_ma=4000
+dtoverlay=pibrick,battery_capacity=5000,charge_current_ma=4000,battery_max_voltage_uv=4100000
 ```
 
-The corresponding Device Tree overrides are:
+Example for a battery cell rated for 4.20 V charging:
 
-```text
-battery_capacity
-charge_current_ma
+```ini
+dtoverlay=pibrick,battery_capacity=5000,charge_current_ma=4000,battery_max_voltage_uv=4200000
 ```
+
+Use the cell manufacturer's specified charging voltage. The voltage parameter is expressed in microvolts, not millivolts or volts.
 
 ---
 
@@ -1051,14 +1073,15 @@ dtoverlay=pibrick
 Optional power configuration:
 
 ```ini
-dtoverlay=pibrick,battery_capacity=5000,charge_current_ma=4000
+dtoverlay=pibrick,battery_capacity=5000,charge_current_ma=4000,battery_max_voltage_uv=4100000
 ```
 
 Default values are:
 
 ```text
-battery_capacity = 5000 mAh
-charge_current_ma = 4000 mA
+battery_capacity       = 5000 mAh
+charge_current_ma      = 4000 mA
+battery_max_voltage_uv = 4100000 uV (4.10 V)
 ```
 
 ---
@@ -1126,32 +1149,17 @@ The two touchscreen nodes allow the same overlay to support the two piBrick disp
 
 ## Power Configuration
 
-The charger is connected to:
+The power devices are connected to I²C1:
 
-```text
-I²C1
-```
+| Device | Address | Role |
+| --- | --- | --- |
+| BQ25895 | `0x6A` | Charger |
+| MAX17048 | `0x36` | Fallback fuel gauge |
+| STC3115 | `0x70` | Primary fuel gauge |
 
-The BQ25890 address is:
+The charger node contains the battery-capacity and charging configuration. The STC3115 and MAX17048 nodes also receive the configured battery capacity so their gauge calculations use the same nominal cell capacity.
 
-```text
-0x6A
-```
-
-The MAX17048 address is:
-
-```text
-0x36
-```
-
-The charger configuration includes:
-
-```dts
-pibrick,battery-capacity-mah = <5000>;
-pibrick,charge-current-ma = <4000>;
-```
-
-The charger also contains the BQ25890 operating parameters required by the piBrick hardware.
+The STC3115 uses a fixed 5 mΩ sense resistor. The driver calculates `CC_CNF` from that fixed value and the configured capacity; there is no `battery_sense_resistor` overlay parameter.
 
 ---
 
@@ -1162,6 +1170,7 @@ The overlay exposes:
 ```text
 battery_capacity
 charge_current_ma
+battery_max_voltage_uv
 ```
 
 For example:
@@ -1179,7 +1188,7 @@ dtoverlay=pibrick,charge_current_ma=4000
 or both:
 
 ```ini
-dtoverlay=pibrick,battery_capacity=5000,charge_current_ma=4000
+dtoverlay=pibrick,battery_capacity=5000,charge_current_ma=4000,battery_max_voltage_uv=4200000
 ```
 
 ---
@@ -1230,6 +1239,7 @@ The root Makefile builds:
 panel/panel-pibrick.o
 power/pibrick-battery.o
 power/pibrick-charger.o
+power/pibrick-stc3115.o
 ```
 
 and separately builds the Hynitron touchscreen module under:
@@ -1326,6 +1336,7 @@ DKMS builds the following modules:
 panel-pibrick
 pibrick-battery
 pibrick-charger
+pibrick-stc3115
 hyn_ts
 ```
 
@@ -1469,6 +1480,7 @@ Look for the piBrick driver modules:
 panel-pibrick
 pibrick-battery
 pibrick-charger
+pibrick-stc3115
 hyn_ts
 ```
 
@@ -1510,7 +1522,7 @@ dmesg | grep -i pibrick
 For display, DSI, power, and touchscreen messages:
 
 ```bash
-dmesg | grep -Ei 'panel|dsi|battery|charger|hyn|touch'
+dmesg | grep -iE 'stc3115|max17048|battery provider|charger|battery'
 ```
 
 ---
@@ -1529,13 +1541,29 @@ The available display modes can be inspected through the DRM sysfs interface.
 
 ## Check Battery
 
-Inspect the Linux power-supply devices:
+Inspect the Linux power-supply devices and current SOC:
 
 ```bash
 ls -l /sys/class/power_supply/
+cat /sys/class/power_supply/battery/capacity
+upower -d
 ```
 
-Typical piBrick-related entries include the battery and charger power-supply devices.
+Check which gauge was selected:
+
+```bash
+dmesg | grep -iE 'stc3115|max17048|battery provider'
+```
+
+Expected selection behavior:
+
+- STC3115 detected: `STC3115 selected as primary fuel gauge`; its SOC is used directly.
+- STC3115 absent and MAX17048 available: MAX17048 provides SOC.
+- Both gauges absent: BQ25895 voltage-based SOC estimation is used.
+
+The MAX17048 may briefly register during boot before STC3115 probes. If STC3115 later logs that it was selected as the primary fuel gauge, it has replaced MAX17048 as the active provider.
+
+In UPower, `percentage` is the current battery SOC. `capacity` is battery health/full-charge capacity relative to design capacity; it is not the current SOC.
 
 ---
 

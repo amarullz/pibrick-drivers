@@ -23,6 +23,8 @@ BOOT_FIRMWARE_DIR="/boot/firmware"
 OVERLAY_DIR="${BOOT_FIRMWARE_DIR}/overlays"
 OVERLAY_FILE="${OVERLAY_DIR}/pibrick.dtbo"
 
+MODULES_LOAD_CONF="/etc/modules-load.d/pibrick.conf"
+
 BUTTON_APP_DIR="${ROOT_DIR}/app/pibrick-button-service"
 KEYBOARD_APP_DIR="${ROOT_DIR}/app/pibrick-kbd"
 
@@ -315,6 +317,7 @@ show_status()
     for module in \
         panel-pibrick \
         pibrick-battery \
+        pibrick-stc3115 \
         pibrick-charger \
         pibrick-mma8451 \
         hyn_ts
@@ -373,6 +376,52 @@ install_config()
     fi
 }
 
+remove_existing_dkms()
+{
+    info "Checking existing DKMS registration"
+
+    if ! command -v dkms >/dev/null 2>&1; then
+        return 0
+    fi
+
+    local dkms_conf="/var/lib/dkms/${DKMS_NAME}/${DKMS_VERSION}/source"
+    local dkms_source="/usr/src/${DKMS_NAME}-${DKMS_VERSION}"
+
+    # Remove existing DKMS registration, regardless of status.
+    if [[ -e "${dkms_conf}" ]] || \
+       dkms status "${DKMS_NAME}/${DKMS_VERSION}" 2>/dev/null |
+       grep -q "${DKMS_NAME}/${DKMS_VERSION}"; then
+
+        info "Removing existing DKMS registration"
+
+        dkms remove \
+            "${DKMS_NAME}/${DKMS_VERSION}" \
+            --all || true
+    fi
+
+    # Clean up stale DKMS registration directory if it remains.
+    if [[ -d "/var/lib/dkms/${DKMS_NAME}/${DKMS_VERSION}" ]]; then
+        rm -rf "/var/lib/dkms/${DKMS_NAME}/${DKMS_VERSION}"
+    fi
+
+    # Remove old source tree before copying updated sources.
+    rm -rf "${dkms_source}"
+}
+
+install_module_autoload()
+{
+    echo "==> Configuring piBrick module autoload"
+
+    cat > "$MODULES_LOAD_CONF" <<'EOF'
+panel-pibrick
+pibrick-charger
+pibrick-battery
+pibrick-stc3115
+pibrick-mma8451
+hyn_ts
+EOF
+}
+
 main()
 {
     require_root "$@"
@@ -394,7 +443,9 @@ main()
     build_dtbo
 
     # DKMS owns kernel module compilation and installation.
+    remove_existing_dkms
     install_dkms
+    install_module_autoload
 
     # The DTBO is installed separately because it is not a kernel module.
     install_dtbo

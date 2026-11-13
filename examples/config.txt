@@ -29,8 +29,8 @@
 #
 #   - DSI1 piBrick AMOLED panel
 #   - I2C0 touchscreen devices
-#   - I2C1 BQ25890 charger
-#   - I2C1 piBrick battery provider
+#   - I2C1 BQ25895 charger
+#   - I2C1 STC3115 / MAX17048 battery-gauge providers
 #   - piBrick GPIO configuration
 #
 # The panel driver automatically detects the installed display:
@@ -51,27 +51,29 @@ dtoverlay=pibrick
 # The following values are the default values defined by the piBrick overlay.
 #
 # battery_capacity
-#   Battery capacity in mAh.
-#
-#   Default:
-#       5000 mAh
+#   Nominal battery capacity in mAh.
+#   Default: 5000 mAh
 #
 # charge_current_ma
-#   Battery charging current in mA.
+#   Configured maximum charging current in mA.
+#   Default: 4000 mA
 #
-#   Default:
-#       4000 mA
+# battery_max_voltage_uv
+#   Battery regulation voltage in microvolts (uV).
+#       4100000 = 4.10 V
+#       4200000 = 4.20 V
+#   Default: 4100000 uV (4.10 V)
 #
-# Example:
+# Example: 5000 mAh, 4000 mA charging current, 4.10 V regulation:
 #
-# dtoverlay=pibrick,battery_capacity=5000,charge_current_ma=4000
+# dtoverlay=pibrick,battery_capacity=5000,charge_current_ma=4000,battery_max_voltage_uv=4100000
 #
-# If your battery or desired charging current differs, replace the values
-# with the appropriate configuration.
+# Example: 4000 mAh, 3000 mA charging current, 4.20 V regulation:
 #
-# Example for a 4000 mAh battery and 3000 mA charging current:
+# dtoverlay=pibrick,battery_capacity=4000,charge_current_ma=3000,battery_max_voltage_uv=4200000
 #
-# dtoverlay=pibrick,battery_capacity=4000,charge_current_ma=3000
+# IMPORTANT: Only use 4.20 V if the LiPo cell manufacturer specifies a
+# 4.20 V charging voltage. Use the voltage rating of your actual battery.
 
 
 # ----------------------------------------------------------------------------
@@ -84,8 +86,9 @@ dtoverlay=pibrick
 #       Touchscreen
 #
 #   I2C1
-#       BQ25890 charger
-#       piBrick battery provider / MAX17048
+#       BQ25895 charger
+#       STC3115 primary fuel gauge (when detected)
+#       MAX17048 fallback fuel gauge
 #
 # The pibrick Device Tree overlay enables the required buses, so normally
 # no additional I2C configuration is required here.
@@ -219,12 +222,16 @@ dtoverlay=pibrick
 # Example Complete Configuration
 # ============================================================================
 #
-# For a standard piBrick PocketCM5 with a 5000 mAh battery and 4000 mA
-# charging current, the relevant configuration is simply:
+# For a standard piBrick PocketCM5 with a 5000 mAh battery, 4000 mA
+# charging current, and 4.10 V battery regulation:
 #
-#     dtoverlay=pibrick,battery_capacity=5000,charge_current_ma=4000
+#     dtoverlay=pibrick,battery_capacity=5000,charge_current_ma=4000,battery_max_voltage_uv=4100000
 #
-# The equivalent configuration using the default values is:
+# For a battery cell rated for 4.20 V charging:
+#
+#     dtoverlay=pibrick,battery_capacity=5000,charge_current_ma=4000,battery_max_voltage_uv=4200000
+#
+# The equivalent configuration using all overlay defaults is:
 #
 #     dtoverlay=pibrick
 #
