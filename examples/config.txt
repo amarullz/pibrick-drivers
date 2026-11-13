@@ -62,7 +62,8 @@ dtoverlay=pibrick
 #   Battery regulation voltage in microvolts (uV).
 #       4100000 = 4.10 V
 #       4200000 = 4.20 V
-#   Default: 4100000 uV (4.10 V)
+#       4300000 = 4.30 V
+#   Default: 4200000 uV (4.20 V)
 #
 # Example: 5000 mAh, 4000 mA charging current, 4.10 V regulation:
 #

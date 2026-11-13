@@ -541,7 +541,7 @@ The default piBrick configuration uses:
 ```text
 Battery capacity:       5000 mAh
 Charge current:         4000 mA
-Battery regulation:     4100000 uV (4.10 V)
+Battery regulation:     4200000 uV (4.20 V)
 ```
 
 ---
@@ -554,12 +554,13 @@ The battery and charger settings are exposed through the piBrick Device Tree ove
 | --- | --- | ---: | --- |
 | `battery_capacity` | mAh | `5000` | Nominal battery capacity |
 | `charge_current_ma` | mA | `4000` | Configured charging current |
-| `battery_max_voltage_uv` | µV | `4100000` | Battery regulation voltage |
+| `battery_max_voltage_uv` | µV | `4200000` | Battery regulation voltage |
 
 `battery_max_voltage_uv` accepts the supported targets:
 
 - `4100000` for 4.10 V
 - `4200000` for 4.20 V
+- `4300000` for 4.30 V
 
 Example for a 5000 mAh cell with 4.10 V regulation:
 
@@ -571,6 +572,12 @@ Example for a battery cell rated for 4.20 V charging:
 
 ```ini
 dtoverlay=pibrick,battery_capacity=5000,charge_current_ma=4000,battery_max_voltage_uv=4200000
+```
+
+Example for a battery cell rated for 4.30 V charging:
+
+```ini
+dtoverlay=pibrick,battery_capacity=5000,charge_current_ma=4000,battery_max_voltage_uv=4300000
 ```
 
 Use the cell manufacturer's specified charging voltage. The voltage parameter is expressed in microvolts, not millivolts or volts.
@@ -1073,7 +1080,7 @@ dtoverlay=pibrick
 Optional power configuration:
 
 ```ini
-dtoverlay=pibrick,battery_capacity=5000,charge_current_ma=4000,battery_max_voltage_uv=4100000
+dtoverlay=pibrick,battery_capacity=5000,charge_current_ma=4000,battery_max_voltage_uv=4200000
 ```
 
 Default values are:
@@ -1081,7 +1088,7 @@ Default values are:
 ```text
 battery_capacity       = 5000 mAh
 charge_current_ma      = 4000 mA
-battery_max_voltage_uv = 4100000 uV (4.10 V)
+battery_max_voltage_uv = 4200000 uV (4.20 V)
 ```
 
 ---
