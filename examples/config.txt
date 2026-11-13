@@ -48,35 +48,45 @@ dtoverlay=pibrick
 # piBrick Battery Configuration
 # ----------------------------------------------------------------------------
 #
-# The following values are the default values defined by the piBrick overlay.
+# piBrick does not include a battery. Configure these values to match the
+# battery installed by the user. The defaults are generic Li-ion/LiPo values.
 #
 # battery_capacity
 #   Nominal battery capacity in mAh.
 #   Default: 5000 mAh
 #
+# battery_nominal_voltage_uv
+#   Battery nominal voltage in microvolts (uV). Used for energy-capacity
+#   reporting (for example, UPower energy_full_design).
+#   Default: 3700000 uV (3.70 V)
+#
+# battery_max_voltage_uv
+#   Maximum battery charging/regulation voltage in microvolts (uV).
+#   Supported targets:
+#       4200000 = 4.20 V (default)
+#       4300000 = 4.30 V
+#       4400000 = 4.40 V
+#
 # charge_current_ma
 #   Configured maximum charging current in mA.
 #   Default: 4000 mA
 #
-# battery_max_voltage_uv
-#   Battery regulation voltage in microvolts (uV).
-#       4100000 = 4.10 V
-#       4200000 = 4.20 V
-#       4300000 = 4.30 V
-#   Default: 4200000 uV (4.20 V)
+# Example: conventional 3.7 V nominal, 4.2 V maximum battery:
 #
-# Example: 5000 mAh, 4000 mA charging current, 4.10 V regulation:
+# dtoverlay=pibrick,battery_capacity=5000,battery_nominal_voltage_uv=3700000,battery_max_voltage_uv=4200000
 #
-# dtoverlay=pibrick,battery_capacity=5000,charge_current_ma=4000,battery_max_voltage_uv=4100000
+# Example: 3.85 V nominal, 4.40 V maximum battery (only if specified by its
+# manufacturer):
 #
-# Example: 4000 mAh, 3000 mA charging current, 4.20 V regulation:
+# dtoverlay=pibrick,battery_capacity=5000,battery_nominal_voltage_uv=3850000,battery_max_voltage_uv=4400000
 #
-# dtoverlay=pibrick,battery_capacity=4000,charge_current_ma=3000,battery_max_voltage_uv=4200000
+# IMPORTANT:
+#   - Set nominal voltage and maximum charging voltage independently.
+#   - Use the battery manufacturer's specified maximum charging voltage.
+#   - Never select 4.30 V or 4.40 V unless the exact battery cell supports it.
+#   - The nominal voltage is used for energy reporting; it does not set the
+#     charger regulation voltage.
 #
-# IMPORTANT: Only use 4.20 V if the LiPo cell manufacturer specifies a
-# 4.20 V charging voltage. Use the voltage rating of your actual battery.
-
-
 # ----------------------------------------------------------------------------
 # I2C
 # ----------------------------------------------------------------------------
@@ -223,17 +233,24 @@ dtoverlay=pibrick
 # Example Complete Configuration
 # ============================================================================
 #
-# For a standard piBrick PocketCM5 with a 5000 mAh battery, 4000 mA
-# charging current, and 4.10 V battery regulation:
+# piBrick does not include a battery. Select settings matching the battery
+# installed in your device.
 #
-#     dtoverlay=pibrick,battery_capacity=5000,charge_current_ma=4000,battery_max_voltage_uv=4100000
-#
-# For a battery cell rated for 4.20 V charging:
-#
-#     dtoverlay=pibrick,battery_capacity=5000,charge_current_ma=4000,battery_max_voltage_uv=4200000
-#
-# The equivalent configuration using all overlay defaults is:
+# Generic defaults: 5000 mAh, 3.70 V nominal, 4.20 V maximum:
 #
 #     dtoverlay=pibrick
 #
-# ============================================================================
+# Example: conventional 3.7 V nominal / 4.2 V maximum battery:
+#
+#     dtoverlay=pibrick,battery_capacity=5000,battery_nominal_voltage_uv=3700000,battery_max_voltage_uv=4200000
+#
+# Example: 3.85 V nominal / 4.40 V maximum battery:
+# Only use 4.40 V when explicitly specified by the battery manufacturer.
+#
+#     dtoverlay=pibrick,battery_capacity=5000,battery_nominal_voltage_uv=3850000,battery_max_voltage_uv=4400000
+#
+# Charging current can also be specified, for example:
+#
+#     dtoverlay=pibrick,battery_capacity=5000,charge_current_ma=4000,battery_nominal_voltage_uv=3850000,battery_max_voltage_uv=4400000
+#
+# ============================================================================ 

@@ -127,7 +127,8 @@ The main components are:
 * BQ25895 charger and voltage-based SOC fallback when neither fuel gauge is available
 * Configurable battery capacity
 * Configurable charging current
-* Configurable battery regulation voltage (4.10 V or 4.20 V)
+* Configurable battery nominal voltage for energy reporting (default 3.70 V)
+* Configurable maximum charging voltage (4.20 V default; optional 4.30 V or 4.40 V)
 * Unified battery-provider selection with priority-based registration
 
 ### Touchscreen
@@ -548,39 +549,72 @@ Battery regulation:     4200000 uV (4.20 V)
 
 ## Battery Configuration
 
-The battery and charger settings are exposed through the piBrick Device Tree overlay.
+piBrick does **not** include a battery. The battery capacity, nominal voltage,
+and maximum charging voltage must be configured to match the cell installed
+by the user. These are independent settings:
+
+- **Nominal voltage** is used for battery energy reporting, including
+  `energy_full_design` and related energy values exposed to UPower.
+- **Maximum charging voltage** configures the BQ25895 charge-voltage
+  regulation target. It must match the battery manufacturer's specification.
+- **Battery capacity** is the cell's rated capacity and is used by the fuel-gauge
+  and energy calculations.
+
+The generic defaults are:
 
 | `config.txt` parameter | Unit | Default | Purpose |
 | --- | --- | ---: | --- |
 | `battery_capacity` | mAh | `5000` | Nominal battery capacity |
+| `battery_nominal_voltage_uv` | µV | `3700000` (3.70 V) | Nominal cell voltage for energy reporting |
+| `battery_max_voltage_uv` | µV | `4200000` (4.20 V) | Maximum charging/regulation voltage |
 | `charge_current_ma` | mA | `4000` | Configured charging current |
-| `battery_max_voltage_uv` | µV | `4200000` | Battery regulation voltage |
 
-`battery_max_voltage_uv` accepts the supported targets:
+### Supported charging-voltage targets
 
-- `4100000` for 4.10 V
-- `4200000` for 4.20 V
-- `4300000` for 4.30 V
+`battery_max_voltage_uv` accepts these targets:
 
-Example for a 5000 mAh cell with 4.10 V regulation:
+| Requested target | BQ25895 regulation setting |
+| --- | ---: |
+| `4200000` (4.20 V) | 4.208 V |
+| `4300000` (4.30 V) | 4.304 V |
+| `4400000` (4.40 V) | 4.400 V |
 
-```ini
-dtoverlay=pibrick,battery_capacity=5000,charge_current_ma=4000,battery_max_voltage_uv=4100000
-```
+The BQ25895 uses 16 mV regulation steps, so the actual programmed voltage can
+differ slightly from a requested target where it does not land exactly on a
+hardware step. The driver reads the actual charger regulation voltage for
+full-charge synchronization.
 
-Example for a battery cell rated for 4.20 V charging:
+### Examples
 
-```ini
-dtoverlay=pibrick,battery_capacity=5000,charge_current_ma=4000,battery_max_voltage_uv=4200000
-```
-
-Example for a battery cell rated for 4.30 V charging:
+Conventional battery rated at 3.70 V nominal and 4.20 V maximum charging:
 
 ```ini
-dtoverlay=pibrick,battery_capacity=5000,charge_current_ma=4000,battery_max_voltage_uv=4300000
+dtoverlay=pibrick,battery_capacity=5000,battery_nominal_voltage_uv=3700000,battery_max_voltage_uv=4200000
 ```
 
-Use the cell manufacturer's specified charging voltage. The voltage parameter is expressed in microvolts, not millivolts or volts.
+Battery rated at 3.85 V nominal and 4.40 V maximum charging:
+
+```ini
+dtoverlay=pibrick,battery_capacity=5000,battery_nominal_voltage_uv=3850000,battery_max_voltage_uv=4400000
+```
+
+You can also configure the charging current:
+
+```ini
+dtoverlay=pibrick,battery_capacity=5000,charge_current_ma=4000,battery_nominal_voltage_uv=3850000,battery_max_voltage_uv=4400000
+```
+
+The equivalent generic-default configuration is:
+
+```ini
+dtoverlay=pibrick
+```
+
+**Battery safety:** Use the maximum charging voltage specified by the
+manufacturer for the exact battery cell. A nominal voltage such as 3.85 V
+does not, by itself, establish whether the cell supports 4.20 V, 4.30 V, or
+4.40 V charging. Never select a higher charging voltage based only on the
+battery's nominal voltage or chemistry label.
 
 ---
 
@@ -1071,24 +1105,26 @@ raspberrypi,5-model-b
 
 ## Overlay Configuration
 
-The standard configuration is:
+The standard configuration uses the generic defaults:
 
 ```ini
 dtoverlay=pibrick
 ```
 
-Optional power configuration:
-
-```ini
-dtoverlay=pibrick,battery_capacity=5000,charge_current_ma=4000,battery_max_voltage_uv=4200000
-```
-
-Default values are:
+The defaults are:
 
 ```text
-battery_capacity       = 5000 mAh
-charge_current_ma      = 4000 mA
-battery_max_voltage_uv = 4200000 uV (4.20 V)
+battery_capacity             = 5000 mAh
+battery_nominal_voltage_uv   = 3700000 uV (3.70 V)
+battery_max_voltage_uv       = 4200000 uV (4.20 V)
+charge_current_ma            = 4000 mA
+```
+
+To customize the battery, specify the values in `config.txt`. For example,
+a 5000 mAh cell rated at 3.85 V nominal and 4.40 V maximum charging:
+
+```ini
+dtoverlay=pibrick,battery_capacity=5000,battery_nominal_voltage_uv=3850000,battery_max_voltage_uv=4400000
 ```
 
 ---
@@ -1164,39 +1200,39 @@ The power devices are connected to I²C1:
 | MAX17048 | `0x36` | Fallback fuel gauge |
 | STC3115 | `0x70` | Primary fuel gauge |
 
-The charger node contains the battery-capacity and charging configuration. The STC3115 and MAX17048 nodes also receive the configured battery capacity so their gauge calculations use the same nominal cell capacity.
+The charger, MAX17048, and STC3115 nodes receive the shared battery capacity
+and nominal-voltage configuration. The nominal voltage is used for energy
+reporting; it is independent of the BQ25895 maximum charging-voltage setting.
 
-The STC3115 uses a fixed 5 mΩ sense resistor. The driver calculates `CC_CNF` from that fixed value and the configured capacity; there is no `battery_sense_resistor` overlay parameter.
+The STC3115 uses a fixed 5 mΩ sense resistor. The driver calculates `CC_CNF`
+from that fixed value and the configured capacity; there is no
+`battery_sense_resistor` overlay parameter.
 
 ---
 
 ## Overlay Overrides
 
-The overlay exposes:
+The overlay exposes these battery and charger settings:
 
 ```text
 battery_capacity
-charge_current_ma
+battery_nominal_voltage_uv
 battery_max_voltage_uv
+charge_current_ma
 ```
 
-For example:
+Examples:
 
 ```ini
 dtoverlay=pibrick,battery_capacity=5000
+dtoverlay=pibrick,battery_nominal_voltage_uv=3850000
+dtoverlay=pibrick,battery_max_voltage_uv=4400000
+dtoverlay=pibrick,battery_capacity=5000,charge_current_ma=4000,battery_nominal_voltage_uv=3850000,battery_max_voltage_uv=4400000
 ```
 
-or:
-
-```ini
-dtoverlay=pibrick,charge_current_ma=4000
-```
-
-or both:
-
-```ini
-dtoverlay=pibrick,battery_capacity=5000,charge_current_ma=4000,battery_max_voltage_uv=4200000
-```
+Use `battery_nominal_voltage_uv` for the battery's nominal voltage and
+`battery_max_voltage_uv` for its manufacturer-specified maximum charging
+voltage. Do not use one as a substitute for the other.
 
 ---
 

@@ -171,6 +171,7 @@ struct bq25890_device {
 	bool gauge_sag_active;
 	/* Battery design capacity in uAh, configurable from Device Tree. */
 	u32 battery_capacity_uah;
+	 u32 battery_nominal_voltage_uv;
 
 	struct mutex lock; /* protect state data */
 };
@@ -1524,11 +1525,16 @@ static int pibrick_charger_get_property(struct power_supply *psy,
 		val->intval = soc * bq->battery_capacity_uah / 100;
 		break;
 	case POWER_SUPPLY_PROP_ENERGY_NOW:
-		val->intval = (int)div_s64((s64)soc * bq->battery_capacity_uah * 3700, 100000);
+		val->intval = (int)div_s64((s64)soc *
+					  bq->battery_capacity_uah *
+					  bq->battery_nominal_voltage_uv,
+					  100000000);
 		break;
 	case POWER_SUPPLY_PROP_ENERGY_FULL:
 	case POWER_SUPPLY_PROP_ENERGY_FULL_DESIGN:
-		val->intval = (int)div_u64((u64)bq->battery_capacity_uah * 3700, 1000);
+		val->intval = (int)div_u64((u64)bq->battery_capacity_uah *
+					   bq->battery_nominal_voltage_uv,
+					   1000000);
 		break;
 	case POWER_SUPPLY_PROP_TECHNOLOGY:
 		val->intval = POWER_SUPPLY_TECHNOLOGY_LIPO;
@@ -2045,6 +2051,16 @@ static int bq25890_fw_probe(struct bq25890_device *bq)
 	/* piBrick single-cell LiPo defaults: 5Ah and 4.2V regulation. */
 	bq->gauge_full_voltage_mv = 4200;
 	bq->battery_capacity_uah = BQ_DEFAULT_CAPACITY_UAH;
+	bq->battery_nominal_voltage_uv = 3700000;
+	if (!device_property_read_u32(bq->dev,
+				      "pibrick,battery-nominal-voltage-uv",
+				      &bq->battery_nominal_voltage_uv)) {
+		if (bq->battery_nominal_voltage_uv < 2500000 ||
+		    bq->battery_nominal_voltage_uv > 5000000)
+			return dev_err_probe(bq->dev, -EINVAL,
+					     "invalid battery nominal voltage %u uV\n",
+					     bq->battery_nominal_voltage_uv);
+	}
 	if (device_property_read_u32(bq->dev, "pibrick,battery-capacity-mah",
 					     &capacity_mah) == 0) {
 		if (capacity_mah == 0 || capacity_mah > 20000)
@@ -2100,15 +2116,17 @@ static int bq25890_fw_probe(struct bq25890_device *bq)
 			}
 	}
 
-	/* piBrick config.txt: battery_max_voltage_uv=4200000 (default) or 4300000 (uV). */
+	/* piBrick config.txt: 4.20V (default), 4.30V, or 4.40V maximum charge voltage. */
 	{
 		u32 max_battery_uv;
 		if (!device_property_read_u32(bq->dev,
 					      "pibrick,battery-max-voltage-uv",
 					      &max_battery_uv)) {
-			if (max_battery_uv != 4200000 && max_battery_uv != 4300000)
+			if (max_battery_uv != 4200000 &&
+			    max_battery_uv != 4300000 &&
+			    max_battery_uv != 4400000)
 				return dev_err_probe(bq->dev, -EINVAL,
-						     "battery max voltage must be 4200000 or 4300000 uV\n");
+						     "battery max voltage must be 4200000, 4300000, or 4400000 uV\n");
 			init->vreg = bq25890_find_idx(max_battery_uv, TBL_VREG);
 			bq->gauge_full_voltage_mv = max_battery_uv / 1000;
 		}

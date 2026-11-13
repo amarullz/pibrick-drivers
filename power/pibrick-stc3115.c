@@ -59,6 +59,8 @@ struct pibrick_stc3115 {
     struct delayed_work retry_work;
     struct delayed_work full_work;
     u32 capacity_uah;
+    u32 nominal_voltage_uv;
+    u32 energy_full_design_uwh;
     u32 full_voltage_tolerance_uv;
     u32 full_confirmation_ms;
     unsigned long full_since;
@@ -367,15 +369,15 @@ static int stc_provider_get_property(void *data,
 
     case POWER_SUPPLY_PROP_ENERGY_FULL:
     case POWER_SUPPLY_PROP_ENERGY_FULL_DESIGN:
-        val->intval = (int)div_u64((u64)stc->capacity_uah * 3700, 1000);
+        val->intval = stc->energy_full_design_uwh;
         return 0;
 
     case POWER_SUPPLY_PROP_ENERGY_NOW:
         soc = stc_get_soc(stc);
         if (soc < 0)
             return soc;
-        val->intval = (int)div_s64((s64)soc * stc->capacity_uah * 3700,
-                                   100000);
+        val->intval = (int)div_s64((s64)soc * stc->energy_full_design_uwh,
+                                   100);
         return 0;
 
     case POWER_SUPPLY_PROP_CAPACITY_LEVEL:
@@ -447,6 +449,7 @@ static int stc3115_probe(struct i2c_client *client)
     struct device *dev = &client->dev;
     struct pibrick_stc3115 *stc;
     u32 cap = STC_DEFAULT_CAP_MAH;
+    u32 nominal_voltage_uv = 3700000;
     u32 cccnf;
     u32 full_tolerance = STC_FULL_TOLERANCE_UV;
     u32 full_confirmation = STC_FULL_CONFIRM_MS;
@@ -478,6 +481,15 @@ static int stc3115_probe(struct i2c_client *client)
                              "invalid battery capacity\n");
 
     stc->capacity_uah = cap * 1000;
+    device_property_read_u32(dev, "pibrick,battery-nominal-voltage-uv",
+                             &nominal_voltage_uv);
+    if (nominal_voltage_uv < 2500000 || nominal_voltage_uv > 5000000)
+        return dev_err_probe(dev, -EINVAL,
+                             "invalid battery nominal voltage %u uV\n",
+                             nominal_voltage_uv);
+    stc->nominal_voltage_uv = nominal_voltage_uv;
+    stc->energy_full_design_uwh = (u32)div_u64(
+        (u64)stc->capacity_uah * stc->nominal_voltage_uv, 1000000);
 
     device_property_read_u32(dev,
                              "pibrick,full-voltage-tolerance-uv",

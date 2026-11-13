@@ -80,7 +80,9 @@
 #define MAX17048_CAP_LOW_THR 15
 #define MAX17048_DEFAULT_CAP_UAH 5000000
 #define MAX17048_MAX_CAP_UAH 10000000
-#define MAX17048_MAX_ENERGY_UWH 18500000
+#define MAX17048_MAX_ENERGY_UWH 50000000
+#define MAX17048_DEFAULT_NOMINAL_VOLTAGE_UV 3700000
+#define MAX17048_MAX_NOMINAL_VOLTAGE_UV 5000000
 
 /*
  * SOC/load-sag compensation.
@@ -116,6 +118,7 @@ struct max17048 {
   struct regmap *regmap;
   u32 charge_full_design_uah;
   u32 energy_full_design_uwh;
+  u32 nominal_voltage_uv;
   struct delayed_work provider_work;
 
   /* Learned full-scale raw SOC (SOC register units, 1/256%). */
@@ -530,11 +533,21 @@ static int max17048_probe(struct i2c_client *client)
     drv->charge_full_design_uah = MAX17048_DEFAULT_CAP_UAH;
   }
 
+  drv->nominal_voltage_uv = MAX17048_DEFAULT_NOMINAL_VOLTAGE_UV;
+  device_property_read_u32(dev, "pibrick,battery-nominal-voltage-uv",
+                           &drv->nominal_voltage_uv);
+  if (drv->nominal_voltage_uv < 2500000 ||
+      drv->nominal_voltage_uv > MAX17048_MAX_NOMINAL_VOLTAGE_UV)
+    return dev_err_probe(dev, -EINVAL,
+                         "invalid battery nominal voltage %u uV\n",
+                         drv->nominal_voltage_uv);
+
   ret = device_property_read_u32(dev, "energy-full-design-microwatt-hours",
                                  &drv->energy_full_design_uwh);
   if (ret || drv->energy_full_design_uwh == 0)
     drv->energy_full_design_uwh =
-        (u32)div_u64((u64)drv->charge_full_design_uah * 37, 10);
+        (u32)div_u64((u64)drv->charge_full_design_uah *
+                     drv->nominal_voltage_uv, 1000000);
 
   if (drv->energy_full_design_uwh > MAX17048_MAX_ENERGY_UWH)
     drv->energy_full_design_uwh = MAX17048_MAX_ENERGY_UWH;
@@ -547,8 +560,9 @@ static int max17048_probe(struct i2c_client *client)
    * yet due to I2C probe ordering. */
   schedule_delayed_work(&drv->provider_work, 0);
 
-  dev_info(dev, "%s: design %u uAh, %u uWh\n", DRIVER_IDENT,
-           drv->charge_full_design_uah, drv->energy_full_design_uwh);
+  dev_info(dev, "%s: design %u uAh, nominal %u uV, %u uWh\n", DRIVER_IDENT,
+           drv->charge_full_design_uah, drv->nominal_voltage_uv,
+           drv->energy_full_design_uwh);
 
   return 0;
 }
